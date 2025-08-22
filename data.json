@@ -1,0 +1,38 @@
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    "nombre": "Reunión de Proyecto 🚀",
+    "contenido": "Discutir los próximos pasos para la app móvil.",
+    "fecha": "2025-09-15",
+    "color": "#81d4fa",
+    "tipo": "Entrega",
+    "fijada": true
+  },
+  {
+    "id": "fghij-klmno-pqrst-uvwxyz-12345",
+    "nombre": "Entregar reporte final",
+    "contenido": "Terminar la sección de conclusiones y enviar.",
+    "fecha": "2025-09-20",
+    "color": "#f1e363ff",
+    "tipo": "Entrega",
+    "fijada": false
+  },
+  {
+    "id": "zyxw-vuts-rqpo-nmlk-jihgfe-54321",
+    "nombre": "Estudiar para examen",
+    "contenido": "Repasar capítulos 3 y 4 del libro.",
+    "fecha": "2025-09-18",
+    "color": "#f1e363ff",
+    "tipo": "Entrega",
+    "fijada": false
+  },
+  {
+    "id": "813be5ee-3838-4707-9e6c-db08d94fd877",
+    "nombre": "asdasdasd",
+    "contenido": "",
+    "fecha": "2025-08-21",
+    "color": "#ce730cff",
+    "tipo": "Clase",
+    "fijada": false
+  }
+]
