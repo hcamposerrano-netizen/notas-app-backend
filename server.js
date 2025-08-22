@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS (AQUÍ ESTÁ EL "ALLOWED") ---
 const allowedOrigins = [
   'http://127.0.0.1:5500', // Para tu desarrollo local
-  'https://TU_URL_DE_NETLIFY.netlify.app'  // <-- ¡ACCIÓN! Pega aquí la URL que te dio Netlify
+  'https://frontend-netifly.netlify.app/'  // <-- ¡ACCIÓN! Pega aquí la URL que te dio Netlify
 ];
 
 const corsOptions = {
