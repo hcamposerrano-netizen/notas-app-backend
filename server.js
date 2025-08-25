@@ -29,7 +29,7 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
   'http://127.0.0.1:5500', 
-  'https://TU_URL_DE_NETLIFY.netlify.app'
+  'https://frontend-netifly.netlify.app/'
 ];
 
 const corsOptions = {
