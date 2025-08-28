@@ -158,3 +158,5 @@ app.put('/api/settings/quicknote', async (req, res) => { const { content } = req
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
+
+// Prueba para forzar un nuevo commit
