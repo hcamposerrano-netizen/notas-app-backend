@@ -16,7 +16,7 @@ const pool = new Pool({
 });
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-
+console.log(`Verificando SUPABASE_KEY: ${process.env.SUPABASE_KEY ? `...${process.env.SUPABASE_KEY.slice(-6)}` : 'NO ENCONTRADA'}`);
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
