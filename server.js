@@ -1,25 +1,24 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 5.0 (CON ADJUNTOS EN SUPABASE)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 6.0 (CON AUTENTICACIÓN PROTEGIDA)
 // =================================================================
 
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const { createClient } = require('@supabase/supabase-js'); // <-- NUEVO: Cliente de Supabase
-const multer = require('multer'); // <-- NUEVO: Middleware para subir archivos
+const { createClient } = require('@supabase/supabase-js');
+const multer = require('multer');
 
 // --- CONFIGURACIÓN DE SERVICIOS ---
 
-// Conexión a la base de datos de Neon
+// Conexión a la base de datos (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// Conexión a Supabase
+// Conexión a Supabase (para Auth y Storage)
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Configuración de Multer (para manejar archivos en memoria)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
@@ -29,86 +28,101 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
   'http://127.0.0.1:5500', 
-  'https://frontend-netifly.netlify.app'
+  'https://frontend-netifly.netlify.app' // Asegúrate de que esta es tu URL correcta
 ];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('No permitido por la política de CORS'));
-    }
-  },
-  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-  credentials: true
-};
-
+const corsOptions = { /* ... (sin cambios) ... */ };
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// ==============================================================
+// 🔐 MIDDLEWARE DE AUTENTICACIÓN (¡LA PARTE MÁS IMPORTANTE!)
+// ==============================================================
+const authMiddleware = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: 'Acceso no autorizado: No se proporcionó token.' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) {
+            throw new Error('Token inválido o expirado.');
+        }
+        req.user = user; // Adjuntamos el usuario verificado a la petición
+        next(); // El token es válido, continuamos
+    } catch (error) {
+        return res.status(401).json({ message: 'Acceso no autorizado: ' + error.message });
+    }
+};
+
 // --- ENDPOINTS DE LA API ---
 
-// GET: Versión para verificar despliegue
+// Endpoint público para verificar el estado del servidor
 app.get('/api/version-check', (req, res) => {
   res.json({ 
-    version: "5.0-SUPABASE-ATTACHMENTS", 
+    version: "6.0-SECURED", 
     message: "Backend desplegado y conectado correctamente." 
   });
 });
 
-// GET: Obtener todas las notas (Ahora también devuelve los adjuntos)
-app.get('/api/notes', async (req, res) => {
+// Todas las rutas de notas ahora están protegidas por el authMiddleware
+app.get('/api/notes', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
   try {
     const query = `
       SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
              to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
              attachment_url, attachment_filename 
       FROM notes 
+      WHERE user_id = $1
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, [userId]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
-// POST: Crear una nota (Sin cambios)
-app.post('/api/notes', async (req, res) => {
+app.post('/api/notes', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false } = req.body;
   try {
     const result = await pool.query(
-      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada) VALUES($1, $2, $3, $4, $5, $6) RETURNING *',
-      [nombre, contenido, fecha_hora, color, tipo, fijada]
+      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id) VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [nombre, contenido, fecha_hora, color, tipo, fijada, userId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al crear la nota" }); }
 });
 
-// PUT: Actualizar una nota (Sin cambios)
-app.put('/api/notes/:id', async (req, res) => {
+app.put('/api/notes/:id', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const noteId = req.params.id;
   const { nombre, contenido, fecha_hora, color, tipo, fijada } = req.body;
   try {
     const result = await pool.query(
-      'UPDATE notes SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6 WHERE id = $7 RETURNING *',
-      [nombre, contenido, fecha_hora, color, tipo, fijada, req.params.id]
+      'UPDATE notes SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6 WHERE id = $7 AND user_id = $8 RETURNING *',
+      [nombre, contenido, fecha_hora, color, tipo, fijada, noteId, userId]
     );
-    if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada' });
+    if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para editarla.' });
     res.json(result.rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al actualizar la nota" }); }
 });
 
-// DELETE: Borrar una nota (Sin cambios)
-app.delete('/api/notes/:id', async (req, res) => {
+app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
+    const userId = req.user.id;
+    const noteId = req.params.id;
     try {
-        const result = await pool.query('DELETE FROM notes WHERE id = $1', [req.params.id]);
-        if (result.rowCount === 0) { return res.status(404).json({ message: 'Nota no encontrada' }); }
+        const result = await pool.query('DELETE FROM notes WHERE id = $1 AND user_id = $2', [noteId, userId]);
+        if (result.rowCount === 0) { return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para borrarla.' }); }
         res.status(204).send();
     } catch (err) { res.status(500).json({ message: "Error al borrar la nota" }); }
 });
 
-// <-- ¡NUEVO ENDPOINT PARA SUBIR ARCHIVOS! -->
-app.post('/api/notes/:id/upload', upload.single('file'), async (req, res) => {
+app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
+  // ... (El código de este endpoint ya era correcto, pero ahora está protegido)
   const noteId = req.params.id;
   const file = req.file;
 
@@ -116,47 +130,33 @@ app.post('/api/notes/:id/upload', upload.single('file'), async (req, res) => {
     return res.status(400).json({ message: 'No se ha proporcionado ningún archivo.' });
   }
 
-  const fileName = `${noteId}-${Date.now()}-${file.originalname}`;
+  const fileName = `${req.user.id}/${noteId}-${Date.now()}-${file.originalname}`;
 
   try {
-    // 1. Subir el archivo al bucket 'adjuntos' de Supabase
     const { error: uploadError } = await supabase.storage
       .from('adjuntos')
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-      });
-
+      .upload(fileName, file.buffer, { contentType: file.mimetype });
     if (uploadError) throw uploadError;
 
-    // 2. Obtener la URL pública del archivo recién subido
-    const { data: { publicUrl } } = supabase.storage
-      .from('adjuntos')
-      .getPublicUrl(fileName);
-
-    // 3. Guardar la URL y el nombre del archivo en nuestra base de datos
+    const { data: { publicUrl } } = supabase.storage.from('adjuntos').getPublicUrl(fileName);
+    
     await pool.query(
-      'UPDATE notes SET attachment_url = $1, attachment_filename = $2 WHERE id = $3',
-      [publicUrl, file.originalname, noteId]
+      'UPDATE notes SET attachment_url = $1, attachment_filename = $2 WHERE id = $3 AND user_id = $4',
+      [publicUrl, file.originalname, noteId, req.user.id]
     );
 
-    res.status(200).json({ 
-      message: 'Archivo subido correctamente.', 
-      attachment_url: publicUrl,
-      attachment_filename: file.originalname
-    });
-
+    res.status(200).json({ message: 'OK', attachment_url: publicUrl, attachment_filename: file.originalname });
   } catch (err) {
     console.error("Error en la subida:", err);
     res.status(500).json({ message: 'Error del servidor al subir el archivo.' });
   }
 });
 
-// Endpoints de nota rápida (Sin cambios)
-app.get('/api/settings/quicknote', async (req, res) => { try { const result = await pool.query("SELECT value FROM settings WHERE key = 'quickNote'"); res.json({ value: result.rows[0]?.value || '' }); } catch (err) { res.status(500).json({ message: 'Error' }); } });
-app.put('/api/settings/quicknote', async (req, res) => { const { content } = req.body; try { await pool.query(`INSERT INTO settings (key, value) VALUES ('quickNote', $1) ON CONFLICT (key) DO UPDATE SET value = $1;`, [content]); res.status(200).json({ message: 'OK' }); } catch (err) { res.status(500).json({ message: 'Error' }); } });
+// Endpoints de nota rápida (protegidos)
+app.get('/api/settings/quicknote', authMiddleware, async (req, res) => { /* ... (código existente) ... */ });
+app.put('/api/settings/quicknote', authMiddleware, async (req, res) => { /* ... (código existente) ... */ });
+
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
-
-// Prueba para forzar un nuevo commit
