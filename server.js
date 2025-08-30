@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 6.1 (CON DEPURACIÓN DE AUTH)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.0 (MULTIUSUARIO CORREGIDO)
 // =================================================================
 
 const express = require('express');
@@ -10,13 +10,17 @@ const multer = require('multer');
 
 // --- CONFIGURACIÓN DE SERVICIOS ---
 
+// Conexión a la base de datos de PostgreSQL (Render se encarga de la variable de entorno)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
+// Cliente de Supabase para la autenticación
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 console.log(`Verificando SUPABASE_KEY: ${process.env.SUPABASE_KEY ? `...${process.env.SUPABASE_KEY.slice(-6)}` : 'NO ENCONTRADA'}`);
+
+// Configuración de Multer para la subida de archivos en memoria
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
@@ -26,7 +30,7 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
   'http://127.0.0.1:5500', 
-  'https://frontend-netifly.netlify.app'
+  'https://frontend-netifly.netlify.app' // Asegúrate que este sea el nombre correcto de tu app en Netlify
 ];
 
 const corsOptions = {
@@ -47,7 +51,7 @@ app.use(express.json());
 
 
 // ==============================================================
-// 🔐 MIDDLEWARE DE AUTENTICACIÓN (CON LOGS DE DEPURACIÓN)
+// 🔐 MIDDLEWARE DE AUTENTICACIÓN (VERIFICA LA IDENTIDAD DEL USUARIO)
 // ==============================================================
 const authMiddleware = async (req, res, next) => {
     console.log(`--- Iniciando authMiddleware para: ${req.method} ${req.path} ---`);
@@ -59,24 +63,22 @@ const authMiddleware = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    console.log('Token recibido:', token ? `...${token.slice(-10)}` : 'null'); // Muestra los últimos 10 chars del token
-
+    
     try {
-        console.log('Intentando verificar el token con Supabase...');
         const { data: { user }, error } = await supabase.auth.getUser(token);
 
         if (error) {
             console.error('Error de Supabase al verificar el token:', error.message);
-            throw new Error('Token inválido o expirado.');
+            return res.status(401).json({ message: 'Token inválido o expirado.' });
         }
         
         if (!user) {
             console.error('Supabase no devolvió un usuario para este token.');
-            throw new Error('Token no válido.');
+            return res.status(401).json({ message: 'Token no válido.' });
         }
 
         console.log('✅ Token verificado. Usuario:', user.email, 'ID:', user.id);
-        req.user = user;
+        req.user = user; // ¡IMPORTANTE! Adjuntamos el usuario a la petición para usarlo después.
         next();
     } catch (error) {
         console.error('Catch final en authMiddleware:', error.message);
@@ -89,12 +91,12 @@ const authMiddleware = async (req, res, next) => {
 // Endpoint público para verificar el estado del servidor
 app.get('/api/version-check', (req, res) => {
   res.json({ 
-    version: "6.1-DEBUG", 
+    version: "7.0-MULTIUSER-FIXED", 
     message: "Backend desplegado y conectado correctamente." 
   });
 });
 
-// Todas las rutas de notas ahora están protegidas por el authMiddleware
+// Todas las rutas de notas ahora están protegidas y filtran por usuario
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -108,7 +110,7 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
     `;
     const result = await pool.query(query, [userId]);
     res.json(result.rows);
-  } catch (err) { res.status(500).json({ message: "Error al obtener las notas" }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
 app.post('/api/notes', authMiddleware, async (req, res) => {
@@ -144,7 +146,7 @@ app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
         const result = await pool.query('DELETE FROM notes WHERE id = $1 AND user_id = $2', [noteId, userId]);
         if (result.rowCount === 0) { return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para borrarla.' }); }
         res.status(204).send();
-    } catch (err) { res.status(500).json({ message: "Error al borrar la nota" }); }
+    } catch (err) { console.error(err); res.status(500).json({ message: "Error al borrar la nota" }); }
 });
 
 app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
@@ -158,9 +160,7 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   const fileName = `${req.user.id}/${noteId}-${Date.now()}-${file.originalname}`;
 
   try {
-    const { error: uploadError } = await supabase.storage
-      .from('adjuntos')
-      .upload(fileName, file.buffer, { contentType: file.mimetype });
+    const { error: uploadError } = await supabase.storage.from('adjuntos').upload(fileName, file.buffer, { contentType: file.mimetype });
     if (uploadError) throw uploadError;
 
     const { data: { publicUrl } } = supabase.storage.from('adjuntos').getPublicUrl(fileName);
@@ -177,22 +177,39 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   }
 });
 
-// Endpoints de nota rápida (protegidos)
+// =========================================================================
+// --- Endpoints de NOTA RÁPIDA (AHORA CORREGIDOS PARA SER MULTIUSUARIO) ---
+// =========================================================================
+
 app.get('/api/settings/quicknote', authMiddleware, async (req, res) => { 
     try { 
-        const result = await pool.query("SELECT value FROM settings WHERE key = 'quickNote'"); 
+        const userId = req.user.id;
+        const result = await pool.query(
+            "SELECT value FROM settings WHERE user_id = $1 AND key = 'quickNote'", 
+            [userId]
+        );
         res.json({ value: result.rows[0]?.value || '' }); 
     } catch (err) { 
-        res.status(500).json({ message: 'Error' }); 
+        console.error(err);
+        res.status(500).json({ message: 'Error al obtener la nota rápida' }); 
     } 
 });
+
 app.put('/api/settings/quicknote', authMiddleware, async (req, res) => { 
     const { content } = req.body; 
+    const userId = req.user.id;
     try { 
-        await pool.query(`INSERT INTO settings (key, value) VALUES ('quickNote', $1) ON CONFLICT (key) DO UPDATE SET value = $1;`, [content]); 
+        await pool.query(
+            `INSERT INTO settings (user_id, key, value) 
+             VALUES ($1, 'quickNote', $2) 
+             ON CONFLICT (user_id, key) 
+             DO UPDATE SET value = $2;`, 
+            [userId, content]
+        );
         res.status(200).json({ message: 'OK' }); 
     } catch (err) { 
-        res.status(500).json({ message: 'Error' }); 
+        console.error(err);
+        res.status(500).json({ message: 'Error al guardar la nota rápida' }); 
     } 
 });
 
