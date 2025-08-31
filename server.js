@@ -217,3 +217,30 @@ app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
+// AÑADE ESTA RUTA EN TU ARCHIVO PRINCIPAL DEL BACKEND (ej. index.js)
+
+// Endpoint para archivar o desarchivar una nota
+app.put('/api/notes/:id/archive', async (req, res) => {
+  const { id } = req.params;
+  const { is_archived } = req.body; // Recibe true o false desde el frontend
+
+  // Verifica que el valor recibido sea un booleano
+  if (typeof is_archived !== 'boolean') {
+    return res.status(400).json({ error: 'El valor de is_archived debe ser true o false.' });
+  }
+
+  // Actualiza la nota en la base de datos de Supabase
+  const { data, error } = await supabase
+    .from('notes')
+    .update({ is_archived: is_archived }) // Actualiza la nueva columna
+    .eq('id', id) // Donde el ID coincida
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error al actualizar el estado de archivado:', error);
+    return res.status(500).json({ error: 'No se pudo actualizar la nota.' });
+  }
+
+  res.status(200).json(data); // Devuelve la nota actualizada
+});
