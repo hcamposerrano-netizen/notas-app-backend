@@ -191,6 +191,7 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   } catch (err) { console.error("Error en la subida:", err); res.status(500).json({ message: 'Error del servidor al subir el archivo.' }); }
 });
 
+// ✅ PEGA ESTA VERSIÓN CORREGIDA EN SU LUGAR
 app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -199,13 +200,26 @@ app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: 'El valor de notificaciones_activas no es válido.' });
     }
     try {
-        const result = await pool.query(
-            'UPDATE notes SET notificaciones_activas = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
-            [notificaciones_activas, noteId, userId]
-        );
+        // ▼▼ AQUÍ ESTÁ LA CORRECCIÓN EN LA CONSULTA SQL ▼▼
+        const query = `
+            UPDATE notes SET notificaciones_activas = $1 
+            WHERE id = $2 AND user_id = $3 
+            RETURNING id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
+                      to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
+                      attachment_url, attachment_filename, is_archived, notificaciones_activas
+        `;
+        // ▲▲ FIN DE LA CORRECCIÓN ▲▲
+        
+        const result = await pool.query(query, [notificaciones_activas, noteId, userId]);
+        
         if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
+        
+        // El frontend ahora recibe el objeto completo con 'fecha' y 'hora'
         res.json(result.rows[0]);
-    } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' }); }
+    } catch (err) { 
+        console.error(err); 
+        res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' }); 
+    }
 });
 
 // Endpoints de NOTA RÁPIDA (ya estaban correctos)
