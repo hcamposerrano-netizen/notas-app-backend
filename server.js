@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.1 (CON FUNCIONALIDAD DE ARCHIVADO)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.2 (CON CORRECCIONES DE DATOS)
 // =================================================================
 
 const express = require('express');
@@ -65,17 +65,17 @@ const authMiddleware = async (req, res, next) => {
 // --- ENDPOINTS DE LA API ---
 
 app.get('/api/version-check', (req, res) => {
-  res.json({ version: "7.1-ARCHIVE-FIXED", message: "Backend desplegado y conectado correctamente." });
+  res.json({ version: "7.2-DATA-FIXED", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORREGIDO: Ahora solo trae las notas activas (no archivadas)
+// ✅ CORREGIDO: Ahora incluye 'notificaciones_activas' en la consulta
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
       SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
              to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-             attachment_url, attachment_filename, is_archived
+             attachment_url, attachment_filename, is_archived, notificaciones_activas
       FROM notes 
       WHERE user_id = $1 AND is_archived = false
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
@@ -85,14 +85,14 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
-// ✨ NUEVA RUTA: Para obtener solo las notas archivadas
+// ✅ CORREGIDO: Ahora incluye 'notificaciones_activas' en la consulta
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
       SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
              to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-             attachment_url, attachment_filename, is_archived
+             attachment_url, attachment_filename, is_archived, notificaciones_activas
       FROM notes 
       WHERE user_id = $1 AND is_archived = true
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
@@ -102,17 +102,26 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
 });
 
+// ✅ ÚNICA VERSIÓN CORRECTA DE POST /api/notes
+app.post('/api/notes', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas) VALUES($1, $2, $3, $4, $5, $6, $7, false, $8) RETURNING *',
+      [nombre, contenido, fecha_hora, color, tipo, fijada, userId, notificaciones_activas]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) { console.error(err); res.status(500).json({ message: "Error al crear la nota" }); }
+});
 
-// ✨ NUEVA RUTA: Para archivar o desarchivar una nota específica
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
     const { is_archived } = req.body;
-
     if (typeof is_archived !== 'boolean') {
         return res.status(400).json({ message: 'Valor de is_archived no es válido.' });
     }
-
     try {
         const result = await pool.query(
             'UPDATE notes SET is_archived = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
@@ -165,18 +174,14 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
     res.status(200).json({ message: 'OK', attachment_url: publicUrl, attachment_filename: file.originalname });
   } catch (err) { console.error("Error en la subida:", err); res.status(500).json({ message: 'Error del servidor al subir el archivo.' }); }
 });
-// EN server.js (añadir cerca de los otros endpoints PUT/DELETE)
 
-// ✨ NUEVA RUTA: Para activar o desactivar las notificaciones de una nota
 app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
     const { notificaciones_activas } = req.body;
-
     if (typeof notificaciones_activas !== 'boolean') {
         return res.status(400).json({ message: 'El valor de notificaciones_activas no es válido.' });
     }
-
     try {
         const result = await pool.query(
             'UPDATE notes SET notificaciones_activas = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
@@ -202,19 +207,4 @@ app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-});
-// EN server.js
-app.post('/api/notes', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  // ✨ AÑADIDO: notificaciones_activas
-  const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
-  try {
-    const result = await pool.query(
-      // ✨ AÑADIDO: campo y valor
-      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas) VALUES($1, $2, $3, $4, $5, $6, $7, false, $8) RETURNING *',
-      // ✨ AÑADIDO: parámetro
-      [nombre, contenido, fecha_hora, color, tipo, fijada, userId, notificaciones_activas]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) { console.error(err); res.status(500).json({ message: "Error al crear la nota" }); }
 });
