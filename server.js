@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.2 (CON CORRECCIONES DE DATOS)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.3 (SOLUCIÓN COMPLETA DE ESTADO)
 // =================================================================
 
 const express = require('express');
@@ -65,10 +65,10 @@ const authMiddleware = async (req, res, next) => {
 // --- ENDPOINTS DE LA API ---
 
 app.get('/api/version-check', (req, res) => {
-  res.json({ version: "7.2-DATA-FIXED", message: "Backend desplegado y conectado correctamente." });
+  res.json({ version: "7.3-STATE-FIXED", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORREGIDO: Ahora incluye 'notificaciones_activas' en la consulta
+// ✅ CORREGIDO: Ahora SIEMPRE se devuelve el campo 'notificaciones_activas'
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -85,7 +85,7 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
-// ✅ CORREGIDO: Ahora incluye 'notificaciones_activas' en la consulta
+// ✅ CORREGIDO: También se devuelve 'notificaciones_activas' para las notas archivadas
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -127,24 +127,22 @@ app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
             'UPDATE notes SET is_archived = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
             [is_archived, noteId, userId]
         );
-        if (result.rowCount === 0) {
-            return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
-        }
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
         res.json(result.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Error al actualizar el estado de archivado.' });
-    }
+    } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de archivado.' }); }
 });
 
+// ✅ CORREGIDO: La actualización general ahora incluye 'notificaciones_activas' para no borrarlo
 app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const noteId = req.params.id;
-  const { nombre, contenido, fecha_hora, color, tipo, fijada } = req.body;
+  const { nombre, contenido, fecha_hora, color, tipo, fijada, notificaciones_activas } = req.body;
   try {
     const result = await pool.query(
-      'UPDATE notes SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6 WHERE id = $7 AND user_id = $8 RETURNING *',
-      [nombre, contenido, fecha_hora, color, tipo, fijada, noteId, userId]
+      `UPDATE notes 
+       SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6, notificaciones_activas = $7 
+       WHERE id = $8 AND user_id = $9 RETURNING *`,
+      [nombre, contenido, fecha_hora, color, tipo, fijada, notificaciones_activas, noteId, userId]
     );
     if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para editarla.' });
     res.json(result.rows[0]);
@@ -156,7 +154,7 @@ app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
     const noteId = req.params.id;
     try {
         const result = await pool.query('DELETE FROM notes WHERE id = $1 AND user_id = $2', [noteId, userId]);
-        if (result.rowCount === 0) { return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para borrarla.' }); }
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso para borrarla.' });
         res.status(204).send();
     } catch (err) { console.error(err); res.status(500).json({ message: "Error al borrar la nota" }); }
 });
@@ -164,7 +162,7 @@ app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
 app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
   const noteId = req.params.id;
   const file = req.file;
-  if (!file) { return res.status(400).json({ message: 'No se ha proporcionado ningún archivo.' }); }
+  if (!file) return res.status(400).json({ message: 'No se ha proporcionado ningún archivo.' });
   const fileName = `${req.user.id}/${noteId}-${Date.now()}-${file.originalname}`;
   try {
     const { error: uploadError } = await supabase.storage.from('adjuntos').upload(fileName, file.buffer, { contentType: file.mimetype });
@@ -187,14 +185,9 @@ app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
             'UPDATE notes SET notificaciones_activas = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
             [notificaciones_activas, noteId, userId]
         );
-        if (result.rowCount === 0) {
-            return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
-        }
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
         res.json(result.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' });
-    }
+    } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' }); }
 });
 
 // Endpoints de NOTA RÁPIDA (ya estaban correctos)
