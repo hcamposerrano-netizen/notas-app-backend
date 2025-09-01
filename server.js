@@ -102,17 +102,35 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
 });
 
-// ✅ ÚNICA VERSIÓN CORRECTA DE POST /api/notes
+// ✅ PEGA ESTA VERSIÓN CORREGIDA EN SU LUGAR
 app.post('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
+  
+  // ▼▼ LA CORRECCIÓN ESTÁ EN ESTA CONSULTA SQL ▼▼
+  // Le decimos que al devolver (RETURNING) la nota, también nos dé los campos
+  // 'fecha' y 'hora' ya formateados, igual que hace la consulta GET.
+  const query = `
+    INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas) 
+    VALUES($1, $2, $3, $4, $5, $6, $7, false, $8) 
+    RETURNING id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
+              to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
+              attachment_url, attachment_filename, is_archived, notificaciones_activas
+  `;
+  // ▲▲ FIN DE LA CORRECCIÓN ▲▲
+
   try {
-    const result = await pool.query(
-      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas) VALUES($1, $2, $3, $4, $5, $6, $7, false, $8) RETURNING *',
+    const result = await pool.query(query,
       [nombre, contenido, fecha_hora, color, tipo, fijada, userId, notificaciones_activas]
     );
+    
+    // Ahora el objeto devuelto (result.rows[0]) tendrá las propiedades 'fecha' y 'hora'
+    // que el frontend necesita para mostrar los datos inmediatamente.
     res.status(201).json(result.rows[0]);
-  } catch (err) { console.error(err); res.status(500).json({ message: "Error al crear la nota" }); }
+  } catch (err) { 
+    console.error(err); 
+    res.status(500).json({ message: "Error al crear la nota" }); 
+  }
 });
 
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
