@@ -102,18 +102,6 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
 });
 
-// ✅ CORREGIDO: Se asegura de que las notas nuevas no estén archivadas por defecto
-app.post('/api/notes', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false } = req.body;
-  try {
-    const result = await pool.query(
-      'INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived) VALUES($1, $2, $3, $4, $5, $6, $7, false) RETURNING *',
-      [nombre, contenido, fecha_hora, color, tipo, fijada, userId]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) { console.error(err); res.status(500).json({ message: "Error al crear la nota" }); }
-});
 
 // ✨ NUEVA RUTA: Para archivar o desarchivar una nota específica
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
