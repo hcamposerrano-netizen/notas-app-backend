@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 8.1 (COMPATIBILIDAD TOTAL)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 8.2 (API SIMPLIFICADA)
 // =================================================================
 
 const express = require('express');
@@ -65,17 +65,15 @@ const authMiddleware = async (req, res, next) => {
 // --- ENDPOINTS DE LA API ---
 
 app.get('/api/version-check', (req, res) => {
-  res.json({ version: "8.1-COMPATIBILITY-FIX", message: "Backend desplegado y conectado correctamente." });
+  res.json({ version: "8.2-API-SIMPLIFIED", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORREGIDO: Devuelve el timestamp completo Y las propiedades 'fecha' y 'hora' para compatibilidad.
+// ✅ CORREGIDO Y SIMPLIFICADO: Devuelve solo el timestamp. El frontend se encarga del formato.
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha,
-             to_char(fecha_hora AT TIME ZONE 'UTC', 'HH24:MI') AS hora,
-             color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
+      SELECT id, nombre, contenido, fecha_hora, color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
       FROM notes
       WHERE user_id = $1 AND is_archived = false
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
@@ -85,14 +83,12 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
-// ✅ CORREGIDO: También para las notas archivadas.
+// ✅ CORREGIDO Y SIMPLIFICADO: También para las notas archivadas.
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha,
-             to_char(fecha_hora AT TIME ZONE 'UTC', 'HH24:MI') AS hora,
-             color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
+      SELECT id, nombre, contenido, fecha_hora, color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
       FROM notes
       WHERE user_id = $1 AND is_archived = true
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
@@ -102,7 +98,6 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
 });
 
-// Esta sección ya está correcta, ya que el frontend se encarga de todo.
 app.post('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
@@ -122,8 +117,6 @@ app.post('/api/notes', authMiddleware, async (req, res) => {
   }
 });
 
-
-// El resto de los endpoints no necesitan cambios...
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -212,4 +205,4 @@ app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-});
+});``
