@@ -73,10 +73,9 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-             to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-             attachment_url, attachment_filename, is_archived, notificaciones_activas
-      FROM notes 
+  SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
+         to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada, ...
+  FROM notes 
       WHERE user_id = $1 AND is_archived = false
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
@@ -90,10 +89,9 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-             to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-             attachment_url, attachment_filename, is_archived, notificaciones_activas
-      FROM notes 
+  SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
+         to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada, ...
+  FROM notes  
       WHERE user_id = $1 AND is_archived = true
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
