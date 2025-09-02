@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 7.3 (SOLUCIÓN COMPLETA DE ESTADO)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 8.1 (COMPATIBILIDAD TOTAL)
 // =================================================================
 
 const express = require('express');
@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
-  'http://127.0.0.1:5500', 
+  'http://127.0.0.1:5500',
   'https://frontend-netifly.netlify.app'
 ];
 const corsOptions = {
@@ -65,17 +65,18 @@ const authMiddleware = async (req, res, next) => {
 // --- ENDPOINTS DE LA API ---
 
 app.get('/api/version-check', (req, res) => {
-  res.json({ version: "7.3-STATE-FIXED", message: "Backend desplegado y conectado correctamente." });
+  res.json({ version: "8.1-COMPATIBILITY-FIX", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORREGIDO: Ahora SIEMPRE se devuelve el campo 'notificaciones_activas'
+// ✅ CORREGIDO: Devuelve el timestamp completo Y las propiedades 'fecha' y 'hora' para compatibilidad.
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-  SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-         to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada, ...
-  FROM notes 
+      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha,
+             to_char(fecha_hora AT TIME ZONE 'UTC', 'HH24:MI') AS hora,
+             color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
+      FROM notes
       WHERE user_id = $1 AND is_archived = false
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
@@ -84,14 +85,15 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
 });
 
-// ✅ CORREGIDO: También se devuelve 'notificaciones_activas' para las notas archivadas
+// ✅ CORREGIDO: También para las notas archivadas.
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
     const query = `
-  SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-         to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada, ...
-  FROM notes  
+      SELECT id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha,
+             to_char(fecha_hora AT TIME ZONE 'UTC', 'HH24:MI') AS hora,
+             color, tipo, fijada, attachment_url, attachment_filename, is_archived, notificaciones_activas
+      FROM notes
       WHERE user_id = $1 AND is_archived = true
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
@@ -100,37 +102,28 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
 });
 
-// ✅ PEGA ESTA VERSIÓN CORREGIDA EN SU LUGAR
+// Esta sección ya está correcta, ya que el frontend se encarga de todo.
 app.post('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
-  
-  // ▼▼ LA CORRECCIÓN ESTÁ EN ESTA CONSULTA SQL ▼▼
-  // Le decimos que al devolver (RETURNING) la nota, también nos dé los campos
-  // 'fecha' y 'hora' ya formateados, igual que hace la consulta GET.
   const query = `
-    INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas) 
-    VALUES($1, $2, $3, $4, $5, $6, $7, false, $8) 
-    RETURNING id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-              to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-              attachment_url, attachment_filename, is_archived, notificaciones_activas
+    INSERT INTO notes(nombre, contenido, fecha_hora, color, tipo, fijada, user_id, is_archived, notificaciones_activas)
+    VALUES($1, $2, $3, $4, $5, $6, $7, false, $8)
+    RETURNING *
   `;
-  // ▲▲ FIN DE LA CORRECCIÓN ▲▲
-
   try {
     const result = await pool.query(query,
       [nombre, contenido, fecha_hora, color, tipo, fijada, userId, notificaciones_activas]
     );
-    
-    // Ahora el objeto devuelto (result.rows[0]) tendrá las propiedades 'fecha' y 'hora'
-    // que el frontend necesita para mostrar los datos inmediatamente.
     res.status(201).json(result.rows[0]);
-  } catch (err) { 
-    console.error(err); 
-    res.status(500).json({ message: "Error al crear la nota" }); 
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error al crear la nota" });
   }
 });
 
+
+// El resto de los endpoints no necesitan cambios...
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -148,15 +141,14 @@ app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de archivado.' }); }
 });
 
-// ✅ CORREGIDO: La actualización general ahora incluye 'notificaciones_activas' para no borrarlo
 app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const noteId = req.params.id;
   const { nombre, contenido, fecha_hora, color, tipo, fijada, notificaciones_activas } = req.body;
   try {
     const result = await pool.query(
-      `UPDATE notes 
-       SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6, notificaciones_activas = $7 
+      `UPDATE notes
+       SET nombre = $1, contenido = $2, fecha_hora = $3, color = $4, tipo = $5, fijada = $6, notificaciones_activas = $7
        WHERE id = $8 AND user_id = $9 RETURNING *`,
       [nombre, contenido, fecha_hora, color, tipo, fijada, notificaciones_activas, noteId, userId]
     );
@@ -189,7 +181,6 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   } catch (err) { console.error("Error en la subida:", err); res.status(500).json({ message: 'Error del servidor al subir el archivo.' }); }
 });
 
-// ✅ PEGA ESTA VERSIÓN CORREGIDA EN SU LUGAR
 app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -198,34 +189,25 @@ app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: 'El valor de notificaciones_activas no es válido.' });
     }
     try {
-        // ▼▼ AQUÍ ESTÁ LA CORRECCIÓN EN LA CONSULTA SQL ▼▼
         const query = `
-            UPDATE notes SET notificaciones_activas = $1 
-            WHERE id = $2 AND user_id = $3 
-            RETURNING id, nombre, contenido, fecha_hora, to_char(fecha_hora, 'YYYY-MM-DD') AS fecha, 
-                      to_char(fecha_hora, 'HH24:MI') AS hora, color, tipo, fijada,
-                      attachment_url, attachment_filename, is_archived, notificaciones_activas
+            UPDATE notes SET notificaciones_activas = $1
+            WHERE id = $2 AND user_id = $3
+            RETURNING *
         `;
-        // ▲▲ FIN DE LA CORRECCIÓN ▲▲
-        
         const result = await pool.query(query, [notificaciones_activas, noteId, userId]);
-        
         if (result.rowCount === 0) return res.status(404).json({ message: 'Nota no encontrada o no tienes permiso.' });
-        
-        // El frontend ahora recibe el objeto completo con 'fecha' y 'hora'
         res.json(result.rows[0]);
-    } catch (err) { 
-        console.error(err); 
-        res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' }); 
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error al actualizar el estado de las notificaciones.' });
     }
 });
 
-// Endpoints de NOTA RÁPIDA (ya estaban correctos)
-app.get('/api/settings/quicknote', authMiddleware, async (req, res) => { 
-    try { const userId = req.user.id; const result = await pool.query("SELECT value FROM settings WHERE user_id = $1 AND key = 'quickNote'", [userId]); res.json({ value: result.rows[0]?.value || '' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al obtener la nota rápida' }); } 
+app.get('/api/settings/quicknote', authMiddleware, async (req, res) => {
+    try { const userId = req.user.id; const result = await pool.query("SELECT value FROM settings WHERE user_id = $1 AND key = 'quickNote'", [userId]); res.json({ value: result.rows[0]?.value || '' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al obtener la nota rápida' }); }
 });
-app.put('/api/settings/quicknote', authMiddleware, async (req, res) => { 
-    const { content } = req.body; const userId = req.user.id; try { await pool.query(`INSERT INTO settings (user_id, key, value) VALUES ($1, 'quickNote', $2) ON CONFLICT (user_id, key) DO UPDATE SET value = $2;`, [userId, content]); res.status(200).json({ message: 'OK' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al guardar la nota rápida' }); } 
+app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
+    const { content } = req.body; const userId = req.user.id; try { await pool.query(`INSERT INTO settings (user_id, key, value) VALUES ($1, 'quickNote', $2) ON CONFLICT (user_id, key) DO UPDATE SET value = $2;`, [userId, content]); res.status(200).json({ message: 'OK' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al guardar la nota rápida' }); }
 });
 
 app.listen(PORT, () => {
