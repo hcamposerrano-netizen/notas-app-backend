@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 8.2 (API SIMPLIFICADA)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 10.0 (VERSIÓN ESTABLE Y ROBUSTA)
 // =================================================================
 
 const express = require('express');
@@ -9,6 +9,7 @@ const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 
 // --- CONFIGURACIÓN DE SERVICIOS ---
+// Las variables de entorno (DATABASE_URL, SUPABASE_URL, SUPABASE_KEY) se leen desde Render.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -25,7 +26,7 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
   'http://127.0.0.1:5500',
-  'https://frontend-netifly.netlify.app'
+  'https://frontend-netifly.netlify.app' // Asegúrate de que esta URL sea la correcta
 ];
 const corsOptions = {
     origin: function (origin, callback) {
@@ -65,10 +66,10 @@ const authMiddleware = async (req, res, next) => {
 // --- ENDPOINTS DE LA API ---
 
 app.get('/api/version-check', (req, res) => {
-  res.json({ version: "8.2-API-SIMPLIFIED", message: "Backend desplegado y conectado correctamente." });
+  res.json({ version: "10.0-STABLE", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORREGIDO Y SIMPLIFICADO: Devuelve solo el timestamp. El frontend se encarga del formato.
+// ✅ CORRECCIÓN FINAL: Aseguramos que la respuesta SIEMPRE sea un array.
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -79,11 +80,15 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
     const result = await pool.query(query, [userId]);
-    res.json(result.rows);
-  } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas" }); }
+    // La corrección clave: si result.rows es nulo o indefinido, envía un array vacío.
+    res.json(result.rows || []);
+  } catch (err) {
+    console.error("Error en /api/notes:", err);
+    res.status(500).json({ message: "Error al obtener las notas" });
+  }
 });
 
-// ✅ CORREGIDO Y SIMPLIFICADO: También para las notas archivadas.
+// ✅ CORRECCIÓN FINAL: Aplicada también a las notas archivadas.
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -94,10 +99,15 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
     const result = await pool.query(query, [userId]);
-    res.json(result.rows);
-  } catch (err) { console.error(err); res.status(500).json({ message: "Error al obtener las notas archivadas" }); }
+    // La corrección clave: si result.rows es nulo o indefinido, envía un array vacío.
+    res.json(result.rows || []);
+  } catch (err) {
+    console.error("Error en /api/notes/archived:", err);
+    res.status(500).json({ message: "Error al obtener las notas archivadas" });
+  }
 });
 
+// Endpoint para crear una nueva nota.
 app.post('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
@@ -117,6 +127,7 @@ app.post('/api/notes', authMiddleware, async (req, res) => {
   }
 });
 
+// Endpoint para archivar/desarchivar una nota.
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -134,6 +145,7 @@ app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de archivado.' }); }
 });
 
+// Endpoint para actualizar una nota existente.
 app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const noteId = req.params.id;
@@ -150,6 +162,7 @@ app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al actualizar la nota" }); }
 });
 
+// Endpoint para borrar una nota.
 app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -160,6 +173,7 @@ app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ message: "Error al borrar la nota" }); }
 });
 
+// Endpoint para subir archivos adjuntos.
 app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
   const noteId = req.params.id;
   const file = req.file;
@@ -174,6 +188,7 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   } catch (err) { console.error("Error en la subida:", err); res.status(500).json({ message: 'Error del servidor al subir el archivo.' }); }
 });
 
+// Endpoint para cambiar el estado de las notificaciones.
 app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -196,13 +211,34 @@ app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     }
 });
 
+// Endpoints para la nota rápida.
 app.get('/api/settings/quicknote', authMiddleware, async (req, res) => {
-    try { const userId = req.user.id; const result = await pool.query("SELECT value FROM settings WHERE user_id = $1 AND key = 'quickNote'", [userId]); res.json({ value: result.rows[0]?.value || '' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al obtener la nota rápida' }); }
-});
-app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
-    const { content } = req.body; const userId = req.user.id; try { await pool.query(`INSERT INTO settings (user_id, key, value) VALUES ($1, 'quickNote', $2) ON CONFLICT (user_id, key) DO UPDATE SET value = $2;`, [userId, content]); res.status(200).json({ message: 'OK' }); } catch (err) { console.error(err); res.status(500).json({ message: 'Error al guardar la nota rápida' }); }
+    try { 
+        const userId = req.user.id;
+        const result = await pool.query("SELECT value FROM settings WHERE user_id = $1 AND key = 'quickNote'", [userId]);
+        res.json({ value: result.rows[0]?.value || '' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error al obtener la nota rápida' });
+    }
 });
 
+app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
+    const { content } = req.body;
+    const userId = req.user.id;
+    try {
+        await pool.query(`
+            INSERT INTO settings (user_id, key, value) VALUES ($1, 'quickNote', $2)
+            ON CONFLICT (user_id, key) DO UPDATE SET value = $2;
+        `, [userId, content]);
+        res.status(200).json({ message: 'OK' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error al guardar la nota rápida' });
+    }
+});
+
+// Inicia el servidor.
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-});``
+});
