@@ -17,7 +17,7 @@ const pool = new Pool({
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// ✅ AÑADIDO: Configuración de Notificaciones Push con tus claves de Render
+// ✅ AÑADIDO: Configuración de Notificaciones Push
 webpush.setVapidDetails(
   'mailto:tu-correo@ejemplo.com', // ❗️ Cambia esto por tu email de contacto
   process.env.VAPID_PUBLIC_KEY,
@@ -50,7 +50,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // ==============================================================
-// 🔐 MIDDLEWARE DE AUTENTICACIÓN (Sin cambios)
+// 🔐 MIDDLEWARE DE AUTENTICACIÓN
 // ==============================================================
 const authMiddleware = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -70,7 +70,7 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
-// --- ENDPOINTS DE LA API (Tus endpoints existentes) ---
+// --- ENDPOINTS DE LA API (TU CÓDIGO ORIGINAL) ---
 
 app.get('/api/version-check', (req, res) => {
   res.json({ version: "10.0-STABLE", message: "Backend desplegado y conectado correctamente." });
@@ -301,6 +301,6 @@ const checkNotesAndSendNotifications = async () => {
 // Inicia el servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-  // ✅ AÑADIDO: Inicia el verificador de notificaciones para que se ejecute cada minuto
+  // ✅ AÑADIDO: Inicia el verificador de notificaciones
   setInterval(checkNotesAndSendNotifications, 60000);
-});
+});``
