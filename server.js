@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 10.0 (VERSIÓN ESTABLE Y ROBUSTA)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 11.0 (CON NOTIFICACIONES PUSH INTEGRADAS)
 // =================================================================
 
 const express = require('express');
@@ -7,15 +7,22 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
+const webpush = require('web-push'); // ✅ AÑADIDO
 
 // --- CONFIGURACIÓN DE SERVICIOS ---
-// Las variables de entorno (DATABASE_URL, SUPABASE_URL, SUPABASE_KEY) se leen desde Render.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+// ✅ AÑADIDO: Configuración de Notificaciones Push con tus claves de Render
+webpush.setVapidDetails(
+  'mailto:tu-correo@ejemplo.com', // ❗️ Cambia esto por tu email de contacto
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -26,7 +33,7 @@ const PORT = process.env.PORT || 3000;
 // --- CONFIGURACIÓN DE CORS ---
 const allowedOrigins = [
   'http://127.0.0.1:5500',
-  'https://frontend-netifly.netlify.app' // Asegúrate de que esta URL sea la correcta
+  'https://frontend-netifly.netlify.app'
 ];
 const corsOptions = {
     origin: function (origin, callback) {
@@ -43,7 +50,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // ==============================================================
-// 🔐 MIDDLEWARE DE AUTENTICACIÓN
+// 🔐 MIDDLEWARE DE AUTENTICACIÓN (Sin cambios)
 // ==============================================================
 const authMiddleware = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -63,13 +70,12 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
-// --- ENDPOINTS DE LA API ---
+// --- ENDPOINTS DE LA API (Tus endpoints existentes) ---
 
 app.get('/api/version-check', (req, res) => {
   res.json({ version: "10.0-STABLE", message: "Backend desplegado y conectado correctamente." });
 });
 
-// ✅ CORRECCIÓN FINAL: Aseguramos que la respuesta SIEMPRE sea un array.
 app.get('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -80,7 +86,6 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
     const result = await pool.query(query, [userId]);
-    // La corrección clave: si result.rows es nulo o indefinido, envía un array vacío.
     res.json(result.rows || []);
   } catch (err) {
     console.error("Error en /api/notes:", err);
@@ -88,7 +93,6 @@ app.get('/api/notes', authMiddleware, async (req, res) => {
   }
 });
 
-// ✅ CORRECCIÓN FINAL: Aplicada también a las notas archivadas.
 app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   try {
@@ -99,7 +103,6 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
       ORDER BY fecha_hora ASC NULLS LAST, id ASC
     `;
     const result = await pool.query(query, [userId]);
-    // La corrección clave: si result.rows es nulo o indefinido, envía un array vacío.
     res.json(result.rows || []);
   } catch (err) {
     console.error("Error en /api/notes/archived:", err);
@@ -107,7 +110,6 @@ app.get('/api/notes/archived', authMiddleware, async (req, res) => {
   }
 });
 
-// Endpoint para crear una nueva nota.
 app.post('/api/notes', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { nombre = "", contenido = "", fecha_hora = null, color = "#f1e363ff", tipo = "Clase", fijada = false, notificaciones_activas = false } = req.body;
@@ -127,7 +129,6 @@ app.post('/api/notes', authMiddleware, async (req, res) => {
   }
 });
 
-// Endpoint para archivar/desarchivar una nota.
 app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -145,7 +146,6 @@ app.put('/api/notes/:id/archive', authMiddleware, async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ message: 'Error al actualizar el estado de archivado.' }); }
 });
 
-// Endpoint para actualizar una nota existente.
 app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const noteId = req.params.id;
@@ -162,7 +162,6 @@ app.put('/api/notes/:id', authMiddleware, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: "Error al actualizar la nota" }); }
 });
 
-// Endpoint para borrar una nota.
 app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -173,7 +172,6 @@ app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ message: "Error al borrar la nota" }); }
 });
 
-// Endpoint para subir archivos adjuntos.
 app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
   const noteId = req.params.id;
   const file = req.file;
@@ -188,7 +186,6 @@ app.post('/api/notes/:id/upload', authMiddleware, upload.single('file'), async (
   } catch (err) { console.error("Error en la subida:", err); res.status(500).json({ message: 'Error del servidor al subir el archivo.' }); }
 });
 
-// Endpoint para cambiar el estado de las notificaciones.
 app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const noteId = req.params.id;
@@ -211,7 +208,6 @@ app.put('/api/notes/:id/notifications', authMiddleware, async (req, res) => {
     }
 });
 
-// Endpoints para la nota rápida.
 app.get('/api/settings/quicknote', authMiddleware, async (req, res) => {
     try { 
         const userId = req.user.id;
@@ -238,7 +234,73 @@ app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
     }
 });
 
-// Inicia el servidor.
+
+// ✅ AÑADIDO: Nuevo Endpoint para guardar la suscripción Push
+app.post('/api/save-subscription', authMiddleware, async (req, res) => {
+  const subscription = req.body;
+  const userId = req.user.id;
+  try {
+    const query = `
+      INSERT INTO push_subscriptions (user_id, subscription_details) VALUES ($1, $2)
+      ON CONFLICT (user_id) DO UPDATE SET subscription_details = $2;
+    `;
+    await pool.query(query, [userId, subscription]);
+    res.status(201).json({ message: 'Suscripción guardada.' });
+  } catch (err) {
+    console.error("Error al guardar la suscripción:", err);
+    res.status(500).json({ message: "No se pudo guardar la suscripción." });
+  }
+});
+
+
+// ✅ AÑADIDO: Lógica periódica para enviar notificaciones Push
+const checkNotesAndSendNotifications = async () => {
+    console.log('⏰ Verificando notas para enviar notificaciones...', new Date().toISOString());
+    const query = `
+        SELECT 
+            n.id as note_id, 
+            n.nombre, 
+            ps.subscription_details,
+            ps.user_id
+        FROM notes n
+        JOIN push_subscriptions ps ON n.user_id = ps.user_id
+        WHERE 
+            n.notificaciones_activas = true AND 
+            n.fecha_hora IS NOT NULL AND
+            (
+                (n.fecha_hora BETWEEN NOW() + interval '3 hours 59 minutes' AND NOW() + interval '4 hours 1 minute') OR
+                (n.fecha_hora BETWEEN NOW() + interval '23 hours 59 minutes' AND NOW() + interval '24 hours 1 minute') OR
+                (n.fecha_hora BETWEEN NOW() + interval '47 hours 59 minutes' AND NOW() + interval '48 hours 1 minute')
+            )`;
+
+    try {
+        const { rows } = await pool.query(query);
+
+        for (const note of rows) {
+            const payload = JSON.stringify({
+                title: 'Recordatorio de Nota',
+                body: `Tu nota "${note.nombre || '(Sin Título)'}" está próxima a vencer.`
+            });
+            try {
+                await webpush.sendNotification(note.subscription_details, payload);
+                console.log(`✅ Notificación enviada para la nota: ${note.nombre}`);
+            } catch (error) {
+                if (error.statusCode === 410) {
+                    await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1', [note.user_id]);
+                    console.log(`Suscripción expirada eliminada para el usuario ${note.user_id}`);
+                } else {
+                    console.error(`Error enviando notificación para la nota ${note.note_id}:`, error.body);
+                }
+            }
+        }
+    } catch (dbError) {
+        console.error('Error de base de datos al verificar notas:', dbError);
+    }
+};
+
+// Inicia el servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+  // ✅ AÑADIDO: Inicia el verificador de notificaciones para que se ejecute cada minuto
+  setInterval(checkNotesAndSendNotifications, 60000);
 });
