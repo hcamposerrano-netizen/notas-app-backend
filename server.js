@@ -1,5 +1,5 @@
 // =================================================================
-// 🚀 SERVIDOR DE NOTAS - VERSIÓN 11.0 (CON NOTIFICACIONES PUSH INTEGRADAS)
+// 🚀 SERVIDOR DE NOTAS - VERSIÓN 11.1 (CON NOTIFICACIONES PUSH CORREGIDAS)
 // =================================================================
 
 const express = require('express');
@@ -7,7 +7,7 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
-const webpush = require('web-push'); // ✅ AÑADIDO
+const webpush = require('web-push');
 
 // --- CONFIGURACIÓN DE SERVICIOS ---
 const pool = new Pool({
@@ -17,12 +17,16 @@ const pool = new Pool({
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// ✅ AÑADIDO: Configuración de Notificaciones Push
-webpush.setVapidDetails(
-  'mailto:tu-correo@ejemplo.com', // ❗️ Cambia esto por tu email de contacto
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+// ✨ CORRECCIÓN: Asegúrate de que las variables de entorno VAPID existen
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+  console.error("Error: Las VAPID keys no están configuradas en las variables de entorno.");
+} else {
+  webpush.setVapidDetails(
+    'mailto:tu-correo@ejemplo.com', // Cambia esto por tu email
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -70,10 +74,11 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
-// --- ENDPOINTS DE LA API (TU CÓDIGO ORIGINAL) ---
+// --- ENDPOINTS DE LA API ---
 
-app.get('/api/version-check', (req, res) => {
-  res.json({ version: "10.0-STABLE", message: "Backend desplegado y conectado correctamente." });
+// ✨ CORRECCIÓN: Nuevo endpoint para la VAPID public key
+app.get('/api/vapid-public-key', (req, res) => {
+  res.send(process.env.VAPID_PUBLIC_KEY);
 });
 
 app.get('/api/notes', authMiddleware, async (req, res) => {
@@ -234,8 +239,7 @@ app.put('/api/settings/quicknote', authMiddleware, async (req, res) => {
     }
 });
 
-
-// ✅ AÑADIDO: Nuevo Endpoint para guardar la suscripción Push
+// Endpoint para guardar la suscripción Push
 app.post('/api/save-subscription', authMiddleware, async (req, res) => {
   const subscription = req.body;
   const userId = req.user.id;
@@ -252,14 +256,14 @@ app.post('/api/save-subscription', authMiddleware, async (req, res) => {
   }
 });
 
-
-// ✅ AÑADIDO: Lógica periódica para enviar notificaciones Push
+// ✨ CORRECCIÓN: Lógica de notificaciones más robusta
 const checkNotesAndSendNotifications = async () => {
     console.log('⏰ Verificando notas para enviar notificaciones...', new Date().toISOString());
     const query = `
         SELECT 
             n.id as note_id, 
             n.nombre, 
+            n.fecha_hora,
             ps.subscription_details,
             ps.user_id
         FROM notes n
@@ -267,29 +271,45 @@ const checkNotesAndSendNotifications = async () => {
         WHERE 
             n.notificaciones_activas = true AND 
             n.fecha_hora IS NOT NULL AND
-            (
-                (n.fecha_hora BETWEEN NOW() + interval '3 hours 59 minutes' AND NOW() + interval '4 hours 1 minute') OR
-                (n.fecha_hora BETWEEN NOW() + interval '23 hours 59 minutes' AND NOW() + interval '24 hours 1 minute') OR
-                (n.fecha_hora BETWEEN NOW() + interval '47 hours 59 minutes' AND NOW() + interval '48 hours 1 minute')
-            )`;
+            n.fecha_hora > NOW() -- Solo procesamos notas futuras
+    `;
 
     try {
         const { rows } = await pool.query(query);
 
         for (const note of rows) {
-            const payload = JSON.stringify({
-                title: 'Recordatorio de Nota',
-                body: `Tu nota "${note.nombre || '(Sin Título)'}" está próxima a vencer.`
-            });
-            try {
-                await webpush.sendNotification(note.subscription_details, payload);
-                console.log(`✅ Notificación enviada para la nota: ${note.nombre}`);
-            } catch (error) {
-                if (error.statusCode === 410) {
-                    await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1', [note.user_id]);
-                    console.log(`Suscripción expirada eliminada para el usuario ${note.user_id}`);
-                } else {
-                    console.error(`Error enviando notificación para la nota ${note.note_id}:`, error.body);
+            const dueDate = new Date(note.fecha_hora);
+            const now = new Date();
+            const diffMinutes = (dueDate.getTime() - now.getTime()) / (1000 * 60);
+
+            let message = null;
+
+            // Comprobamos si estamos dentro de una ventana de ~2 minutos del recordatorio
+            // Esto evita que se pierdan notificaciones si el cron se retrasa un poco
+            if (diffMinutes > (48 * 60 - 2) && diffMinutes <= 48 * 60) {
+                 message = `Tu nota "${note.nombre || '(Sin Título)'}" vence en aproximadamente 2 días.`;
+            } else if (diffMinutes > (24 * 60 - 2) && diffMinutes <= 24 * 60) {
+                 message = `Tu nota "${note.nombre || '(Sin Título)'}" vence en aproximadamente 24 horas.`;
+            } else if (diffMinutes > (4 * 60 - 2) && diffMinutes <= 4 * 60) {
+                 message = `Tu nota "${note.nombre || '(Sin Título)'}" vence en aproximadamente 4 horas.`;
+            }
+            
+            if (message) {
+                 const payload = JSON.stringify({
+                    title: 'Recordatorio de Nota',
+                    body: message
+                });
+                
+                try {
+                    await webpush.sendNotification(note.subscription_details, payload);
+                    console.log(`✅ Notificación enviada para la nota: ${note.nombre}`);
+                } catch (error) {
+                    if (error.statusCode === 410) { // 410 Gone: la suscripción ya no es válida
+                        await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1', [note.user_id]);
+                        console.log(`Suscripción expirada eliminada para el usuario ${note.user_id}`);
+                    } else {
+                        console.error(`Error enviando notificación para la nota ${note.note_id}:`, error.body);
+                    }
                 }
             }
         }
@@ -301,6 +321,6 @@ const checkNotesAndSendNotifications = async () => {
 // Inicia el servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-  // ✅ AÑADIDO: Inicia el verificador de notificaciones
-  setInterval(checkNotesAndSendNotifications, 60000);
-});``
+  // Inicia el verificador de notificaciones
+  setInterval(checkNotesAndSendNotifications, 60000); // Se ejecuta cada minuto
+});
